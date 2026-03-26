@@ -1,0 +1,23 @@
+@startuml
+actor User
+participant FE
+participant BE
+participant DB
+
+User -> FE : Share file
+FE -> BE : POST /share
+
+BE -> DB : Fetch recipient public key
+DB --> BE
+
+BE -> DB : Fetch file FEK
+DB --> BE
+
+BE -> BE : Wrap FEK for recipient
+
+BE -> DB : Store share entry
+
+BE --> FE : Success
+FE --> User : Shared
+
+@enduml

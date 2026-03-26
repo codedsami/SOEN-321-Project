@@ -1,0 +1,28 @@
+@startuml
+actor User
+participant FE
+participant BE
+participant DB
+
+User -> FE : Select file + options
+
+FE -> FE : Generate FEK
+FE -> FE : Compute hash
+FE -> FE : Encrypt file (AES/ChaCha)
+
+FE -> BE : Request public key
+BE -> DB : Fetch public key
+DB --> BE
+BE --> FE
+
+FE -> FE : Wrap FEK (RSA)
+
+FE -> BE : Upload encrypted data
+
+BE -> DB : Store ciphertext + metadata
+DB --> BE
+
+BE --> FE : Success
+FE --> User : Uploaded
+
+@enduml

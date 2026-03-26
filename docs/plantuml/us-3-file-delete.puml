@@ -1,0 +1,21 @@
+@startuml
+actor User
+participant FE
+participant BE
+participant DB
+
+User -> FE : Delete file
+FE -> BE : DELETE /file
+
+BE -> BE : Validate JWT
+BE -> DB : Check ownership
+
+alt owner
+    BE -> DB : Delete file + metadata
+    DB --> BE
+    BE --> FE : Success
+else not owner
+    BE --> FE : 403
+end
+
+@enduml

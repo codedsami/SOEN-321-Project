@@ -1,0 +1,27 @@
+@startuml
+actor Recipient
+participant FE
+participant BE
+participant DB
+
+Recipient -> FE : Open shared file
+FE -> BE : GET /file
+
+BE -> BE : Validate JWT
+BE -> DB : Check permissions
+
+alt authorized
+    BE -> DB : Fetch encrypted data
+    DB --> BE
+    BE --> FE
+
+    FE -> FE : Decrypt private key
+    FE -> FE : Unwrap FEK
+    FE -> FE : Decrypt file
+
+    FE --> Recipient : File
+else denied
+    BE --> FE : 403
+end
+
+@enduml

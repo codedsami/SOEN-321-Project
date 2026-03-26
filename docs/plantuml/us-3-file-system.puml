@@ -1,0 +1,17 @@
+@startuml
+actor User
+participant FE
+participant BE
+participant DB
+
+User -> FE : View files
+FE -> BE : GET /files
+
+BE -> BE : Validate JWT
+BE -> DB : Fetch files
+DB --> BE
+
+BE --> FE : File list
+FE --> User : Display
+
+@enduml

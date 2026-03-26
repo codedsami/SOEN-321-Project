@@ -1,0 +1,29 @@
+@startuml
+actor User
+participant FE
+participant BE
+participant DB
+
+User -> FE : Edit file
+FE -> BE : GET file
+
+BE -> DB : Fetch encrypted file
+DB --> BE
+BE --> FE
+
+FE -> FE : Decrypt file
+FE -> FE : Modify file
+
+FE -> FE : Generate new FEK
+FE -> FE : Encrypt file
+FE -> FE : Wrap FEK for all users
+
+FE -> BE : PUT updated file
+
+BE -> DB : Update data
+DB --> BE
+
+BE --> FE : Success
+FE --> User : Updated
+
+@enduml

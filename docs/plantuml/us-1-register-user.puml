@@ -1,0 +1,21 @@
+@startuml
+actor User
+participant FE
+participant BE
+participant DB
+
+User -> FE : Enter email + password
+FE -> BE : POST /register
+
+BE -> BE : bcrypt(password)
+BE -> BE : Generate RSA key pair
+BE -> BE : PBKDF2(password)
+BE -> BE : Encrypt private key
+
+BE -> DB : Store user + keys
+DB --> BE : OK
+
+BE --> FE : Success
+FE --> User : Account created
+
+@enduml

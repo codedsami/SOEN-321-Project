@@ -1,0 +1,51 @@
+@startuml
+left to right direction
+
+actor User
+actor "Recipient User" as Recipient
+
+rectangle "Secure File Storage System" {
+
+    (Register Account) as UC1
+    (Login) as UC2
+    (Logout) as UC3
+
+    (Upload File) as UC4
+    (Select Encryption Algorithm) as UC5
+    (Select Hash Algorithm) as UC6
+
+    (View Files) as UC7
+    (Delete File) as UC8
+
+    (Download File) as UC9
+    (Decrypt File) as UC10
+    (Verify File Integrity) as UC11
+
+    (Share File) as UC12
+    (Receive Shared File) as UC13
+    (Edit File) as UC14
+}
+
+User --> UC1
+User --> UC2
+User --> UC3
+
+User --> UC4
+UC4 --> UC5 : <<include>>
+UC4 --> UC6 : <<include>>
+
+User --> UC7
+User --> UC8
+
+User --> UC9
+UC9 --> UC10 : <<include>>
+UC9 --> UC11 : <<include>>
+
+User --> UC12
+User --> UC14
+
+Recipient --> UC13
+Recipient --> UC14
+
+UC13 --> UC9 : <<include>>
+@enduml

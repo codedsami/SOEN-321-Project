@@ -1,0 +1,25 @@
+@startuml
+actor User
+participant FE
+participant BE
+participant DB
+
+User -> FE : Download file
+FE -> BE : GET /file
+
+BE -> BE : Validate JWT
+BE -> DB : Fetch encrypted data
+DB --> BE
+
+BE --> FE : ciphertext + wrapped FEK
+
+FE -> FE : Decrypt private key
+FE -> FE : Unwrap FEK
+FE -> FE : Decrypt file
+
+FE -> FE : Recompute hash
+FE -> FE : Compare hashes
+
+FE --> User : File + result
+
+@enduml
