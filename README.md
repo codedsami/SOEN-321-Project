@@ -13,7 +13,7 @@
 | Member | GitHub | Student ID | Contributions |
 |---|---|---|---|
 | Miskat Mahmud | [@codedsami](https://github.com/codedsami) | 40250110 |  |
-| xyz | [@xyz](https://github.com/xyz) |  |  |
+| Adib Akkari | [@adssib](https://github.com/adssib) | 40216815  |  |
 | xyz | [@xyz](https://github.com/xyz) |  |  |
 | xyz | [@xyz](https://github.com/xyz) |  |  |
 | xyz | [@xyz](https://github.com/xyz) |  |  |
