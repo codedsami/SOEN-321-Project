@@ -4,25 +4,28 @@ participant FE
 participant BE
 participant DB
 
-User -> FE : Select file + options
+User -> FE : Select file\n+ choose enc algo (AES-256-GCM / RSA-OAEP / ChaCha20-Poly1305)\n+ choose hash algo (SHA-256 / SHA-512 / MD5)
 
-FE -> FE : Generate FEK
-FE -> FE : Compute hash
-FE -> FE : Encrypt file (AES/ChaCha)
+note over FE : All crypto operations happen\nclient-side — server never sees\nplaintext or raw FEK
 
-FE -> BE : Request public key
-BE -> DB : Fetch public key
-DB --> BE
-BE --> FE
+FE -> FE : Compute hash of plaintext file\n(SHA-256 / SHA-512 / MD5)
+FE -> FE : Generate random FEK\n(32 bytes via os.urandom)
+FE -> FE : Generate random nonce / IV\n(96-bit for AES-GCM, 96-bit for ChaCha20)
+FE -> FE : Encrypt file using FEK + nonce\n→ produces ciphertext + auth_tag\n(AES-256-GCM or ChaCha20-Poly1305)
 
-FE -> FE : Wrap FEK (RSA)
+FE -> BE : GET /users/me/pubkey
+BE -> DB : Fetch owner public key PEM\n(stored plain — public keys are safe)
+DB --> BE : public_key_pem
+BE --> FE : public_key_pem
 
-FE -> BE : Upload encrypted data
+FE -> FE : Wrap FEK using owner RSA public key\n(RSA-OAEP padding)\n→ produces wrapped_FEK
 
-BE -> DB : Store ciphertext + metadata
-DB --> BE
+FE -> BE : POST /files\n(\n  ciphertext,\n  wrapped_FEK,\n  nonce,\n  auth_tag,\n  file_hash,\n  enc_algo,\n  hash_algo,\n  filename,\n  file_size\n)
 
-BE --> FE : Success
-FE --> User : Uploaded
+BE -> BE : Validate JWT
+BE -> DB : INSERT file record\n(\n  owner_id = jwt.user_id,\n  ciphertext,\n  wrapped_FEK,\n  nonce,\n  auth_tag,\n  file_hash,\n  enc_algo,\n  hash_algo,\n  filename,\n  file_size,\n  upload_date = now()\n)
+DB --> BE : file_id
 
+BE --> FE : 201 Created\n{ file_id, filename, file_hash, enc_algo, hash_algo }
+FE --> User : Upload successful\nHash: [digest value]\nAlgorithm: [enc_algo]\nFile ID: [file_id]
 @enduml

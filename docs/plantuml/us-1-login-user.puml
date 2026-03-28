@@ -4,20 +4,27 @@ participant FE
 participant BE
 participant DB
 
-User -> FE : Enter credentials
-FE -> BE : POST /login
+User -> FE : Enter email + password
 
-BE -> DB : Fetch user
-DB --> BE : user data
+FE -> BE : POST /login\n{ email, password }
 
-BE -> BE : Verify bcrypt
+BE -> DB : Fetch user record\nWHERE email = input_email
+DB --> BE : { user_id, email, bcrypt_hash }\nor null if not found
 
-alt valid
-    BE -> BE : Generate JWT
-    BE --> FE : Token
-    FE --> User : Logged in
-else invalid
-    BE --> FE : 401 error
+alt user not found
+    BE --> FE : 401 Unauthorized\n{ error: "Invalid credentials" }
+    FE --> User : Login failed
+else user found
+    BE -> BE : bcrypt.verify(\n  input_password,\n  stored_bcrypt_hash\n)
+
+    alt password valid
+        BE -> BE : Generate JWT\n{\n  user_id,\n  email,\n  exp: now + 24h\n}
+        BE --> FE : 200 OK\n{ token: JWT }
+        FE -> FE : Store JWT in localStorage
+        FE --> User : Logged in — redirect to dashboard
+    else password invalid
+        BE --> FE : 401 Unauthorized\n{ error: "Invalid credentials" }
+        FE --> User : Login failed — incorrect password
+    end
 end
-
 @enduml

@@ -4,18 +4,22 @@ participant FE
 participant BE
 participant DB
 
-User -> FE : Delete file
-FE -> BE : DELETE /file
+User -> FE : Click delete on file
 
+FE -> BE : DELETE /files/{id}
 BE -> BE : Validate JWT
-BE -> DB : Check ownership
+BE -> DB : Check file ownership\n(file.owner_id == jwt.user_id)
+DB --> BE : ownership result
 
-alt owner
-    BE -> DB : Delete file + metadata
-    DB --> BE
-    BE --> FE : Success
+alt is owner
+    BE -> DB : Delete ciphertext + metadata
+    BE -> DB : Delete all wrapped FEKs for this file
+    BE -> DB : Delete all share entries for this file
+    DB --> BE : OK
+    BE --> FE : 200 Success
+    FE --> User : File deleted
 else not owner
-    BE --> FE : 403
+    BE --> FE : 403 Forbidden
+    FE --> User : Error — you do not own this file
 end
-
 @enduml

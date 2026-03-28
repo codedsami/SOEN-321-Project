@@ -4,20 +4,28 @@ participant FE
 participant BE
 participant DB
 
-User -> FE : Share file
-FE -> BE : POST /share
+User -> FE : Share file with recipient email
 
+FE -> BE : GET /users/recipient/pubkey
 BE -> DB : Fetch recipient public key
-DB --> BE
+DB --> BE : recipient_public_key_pem
+BE --> FE : recipient_public_key_pem
 
-BE -> DB : Fetch file FEK
-DB --> BE
+FE -> BE : GET /files/{id}/wrapped-fek
+BE -> BE : Validate JWT (must be owner)
+BE -> DB : Fetch owner's wrapped_FEK
+DB --> BE : wrapped_FEK (owner copy)
+BE --> FE : wrapped_FEK
 
-BE -> BE : Wrap FEK for recipient
+FE -> FE : Derive key from password (PBKDF2)
+FE -> FE : Decrypt private key blob → RSA key
+FE -> FE : Unwrap FEK using own RSA private key
+FE -> FE : Re-wrap FEK using recipient public key
 
-BE -> DB : Store share entry
-
-BE --> FE : Success
-FE --> User : Shared
-
+FE -> BE : POST /share\n(file_id, recipient_id, new_wrapped_FEK)
+BE -> BE : Validate JWT
+BE -> DB : Store share entry\n(file_id, recipient_id, wrapped_FEK)
+DB --> BE : OK
+BE --> FE : 200 Success
+FE --> User : File shared successfully
 @enduml

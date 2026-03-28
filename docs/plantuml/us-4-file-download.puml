@@ -4,22 +4,29 @@ participant FE
 participant BE
 participant DB
 
-User -> FE : Download file
-FE -> BE : GET /file
+User -> FE : Click download on file
 
+FE -> BE : GET /files/{id}
 BE -> BE : Validate JWT
-BE -> DB : Fetch encrypted data
-DB --> BE
+BE -> DB : Fetch file record\n(\n  ciphertext,\n  wrapped_FEK,\n  nonce,\n  auth_tag,\n  stored_hash,\n  enc_algo,\n  hash_algo\n)
+DB --> BE : encrypted file data
+BE --> FE : encrypted file data
 
-BE --> FE : ciphertext + wrapped FEK
+note over FE : All decryption happens\nclient-side only — server\nnever sees plaintext or raw FEK
 
-FE -> FE : Decrypt private key
-FE -> FE : Unwrap FEK
-FE -> FE : Decrypt file
+FE -> FE : Prompt user for password
+FE -> FE : Derive key from password\n(PBKDF2 + stored salt)
+FE -> FE : Decrypt private key blob\n→ RSA key object
+FE -> FE : Unwrap FEK using RSA\nprivate key (OAEP)\n→ raw 32-byte FEK
+FE -> FE : Decrypt ciphertext using FEK + nonce\n(AES-256-GCM or ChaCha20-Poly1305)
+FE -> FE : Verify auth tag\n→ confirms ciphertext was not tampered with
 
-FE -> FE : Recompute hash
-FE -> FE : Compare hashes
+FE -> FE : Recompute hash of decrypted plaintext\nusing stored hash_algo\n(SHA-256 / SHA-512 / MD5)
+FE -> FE : Compare recomputed hash\nvs stored hash
 
-FE --> User : File + result
-
+alt hashes match
+    FE --> User : Plaintext file\n+ INTEGRITY PASS (hashes match)
+else hashes differ
+    FE --> User : WARNING — integrity FAILED\nFile may have been tampered with
+end
 @enduml

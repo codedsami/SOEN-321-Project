@@ -4,26 +4,51 @@ participant FE
 participant BE
 participant DB
 
-User -> FE : Edit file
-FE -> BE : GET file
+User -> FE : Open file for editing
 
-BE -> DB : Fetch encrypted file
-DB --> BE
-BE --> FE
+FE -> BE : GET /files/{id}
+BE -> BE : Validate JWT (must be owner)
+BE -> DB : Fetch file record\n(\n  ciphertext,\n  wrapped_FEK,\n  nonce,\n  auth_tag,\n  stored_hash,\n  enc_algo,\n  hash_algo\n)
+DB --> BE : encrypted file data
+BE --> FE : encrypted file data
 
-FE -> FE : Decrypt file
-FE -> FE : Modify file
+note over FE : Decrypt client-side\nbefore presenting to user
 
-FE -> FE : Generate new FEK
-FE -> FE : Encrypt file
-FE -> FE : Wrap FEK for all users
+FE -> FE : Derive key from password (PBKDF2)
+FE -> FE : Decrypt private key blob → RSA key object
+FE -> FE : Unwrap FEK using RSA private key (OAEP)
+FE -> FE : Decrypt ciphertext using FEK + nonce\n(AES-256-GCM or ChaCha20-Poly1305)
+FE --> User : Plaintext file (editable)
 
-FE -> BE : PUT updated file
+User -> FE : Make edits and save
 
-BE -> DB : Update data
-DB --> BE
+note over FE : Re-encrypt with brand new FEK\nOld FEK is discarded
 
-BE --> FE : Success
-FE --> User : Updated
+FE -> FE : Compute new hash of edited plaintext\n(SHA-256 / SHA-512 / MD5)
+FE -> FE : Generate new random FEK\n(32 bytes via os.urandom)
+FE -> FE : Generate new random nonce / IV
+FE -> FE : Encrypt edited file using new FEK + nonce\n→ new ciphertext + auth_tag
 
+FE -> BE : GET /files/{id}/shares
+BE -> DB : Fetch all recipient IDs\nfor this file
+DB --> BE : [recipient_id, ...]
+BE --> FE : recipient list
+
+FE -> BE : GET /users/pubkeys\n(owner + all recipients)
+BE -> DB : Fetch all public key PEMs
+DB --> BE : [{ user_id, public_key_pem }, ...]
+BE --> FE : public keys
+
+FE -> FE : Wrap new FEK for owner\n(RSA-OAEP with owner public key)
+FE -> FE : Wrap new FEK for each recipient\n(RSA-OAEP with each recipient public key)
+
+FE -> BE : PUT /files/{id}\n(\n  new_ciphertext,\n  new_nonce,\n  new_auth_tag,\n  new_file_hash,\n  wrapped_FEK_owner,\n  [wrapped_FEK_recipient1, ...]\n)
+
+BE -> BE : Validate JWT (must be owner)
+BE -> DB : Update file record\n(ciphertext, nonce, auth_tag,\nfile_hash, wrapped_FEK_owner)
+BE -> DB : Update shares table\n(new wrapped_FEK per recipient)
+DB --> BE : OK
+
+BE --> FE : 200 Success
+FE --> User : File updated successfully
 @enduml

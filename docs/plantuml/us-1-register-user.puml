@@ -5,17 +5,18 @@ participant BE
 participant DB
 
 User -> FE : Enter email + password
-FE -> BE : POST /register
 
-BE -> BE : bcrypt(password)
-BE -> BE : Generate RSA key pair
-BE -> BE : PBKDF2(password)
-BE -> BE : Encrypt private key
+FE -> BE : POST /register\n(email, password)
 
-BE -> DB : Store user + keys
+BE -> BE : Hash password → bcrypt(password, cost=12)
+BE -> BE : Generate RSA-2048 key pair\n(public_key, private_key)
+BE -> BE : Derive encryption key\nfrom password (PBKDF2 + salt)
+BE -> BE : Encrypt private key using\nderived key (AES-256)
+BE -> BE : Discard raw private key from memory
+
+BE -> DB : Store (\n  email,\n  bcrypt_hash,\n  public_key_pem [plain],\n  encrypted_private_key_blob\n)
 DB --> BE : OK
 
-BE --> FE : Success
-FE --> User : Account created
-
+BE --> FE : 201 Created
+FE --> User : Account created — you can now log in
 @enduml

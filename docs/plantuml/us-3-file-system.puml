@@ -4,14 +4,21 @@ participant FE
 participant BE
 participant DB
 
-User -> FE : View files
+User -> FE : Open dashboard
+
 FE -> BE : GET /files
-
 BE -> BE : Validate JWT
-BE -> DB : Fetch files
-DB --> BE
+BE -> DB : Fetch files owned by user\n(filter by owner_id = jwt.user_id)
+DB --> BE : list of file records
+BE --> FE : [\n  {\n    file_id,\n    filename,\n    enc_algo,\n    hash_algo,\n    file_hash,\n    file_size,\n    upload_date\n  }, ...\n]
 
-BE --> FE : File list
-FE --> User : Display
+note over BE : Server returns metadata only\nNo ciphertext is sent here
 
+FE -> BE : GET /files/shared-with-me
+BE -> BE : Validate JWT
+BE -> DB : Fetch share entries\nwhere recipient_id = jwt.user_id
+DB --> BE : list of shared file records
+BE --> FE : [\n  {\n    file_id,\n    filename,\n    owner_email,\n    enc_algo,\n    hash_algo,\n    shared_date\n  }, ...\n]
+
+FE --> User : Display owned files\n+ files shared with me
 @enduml

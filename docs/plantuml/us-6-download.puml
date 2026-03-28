@@ -1,27 +1,32 @@
 @startuml
-actor Recipient
+actor User
 participant FE
 participant BE
 participant DB
 
-Recipient -> FE : Open shared file
-FE -> BE : GET /file
+User -> FE : Request file download
 
+FE -> BE : GET /files/{id}
 BE -> BE : Validate JWT
-BE -> DB : Check permissions
+BE -> DB : Fetch ciphertext + wrapped_FEK\n+ nonce + auth_tag + stored_hash\n+ enc_algo + hash_algo
+DB --> BE : encrypted file data
+BE --> FE : encrypted file data
 
-alt authorized
-    BE -> DB : Fetch encrypted data
-    DB --> BE
-    BE --> FE
+note over FE : All decryption happens\nclient-side only
 
-    FE -> FE : Decrypt private key
-    FE -> FE : Unwrap FEK
-    FE -> FE : Decrypt file
+FE -> FE : Prompt user for password
+FE -> FE : Derive key from password (PBKDF2)
+FE -> FE : Decrypt private key blob → RSA key object
+FE -> FE : Unwrap FEK using RSA private key (OAEP)
+FE -> FE : Decrypt ciphertext using FEK\n(AES-256-GCM or ChaCha20-Poly1305)
+FE -> FE : Verify auth tag (tamper check on ciphertext)
 
-    FE --> Recipient : File
-else denied
-    BE --> FE : 403
+FE -> FE : Recompute hash of decrypted plaintext\n(using stored hash_algo)
+FE -> FE : Compare recomputed hash vs stored hash
+
+alt hashes match
+    FE --> User : Plaintext file + INTEGRITY PASS
+else hashes differ
+    FE --> User : Warning — file integrity FAILED\n(possible tampering detected)
 end
-
 @enduml
