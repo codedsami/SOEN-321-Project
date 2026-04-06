@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import create_access_token
 from models import db, User
 from crypto import (
     hash_password, verify_password,
@@ -70,8 +71,5 @@ def login():
     )
 
     # Return success
-    return jsonify({
-        'message': 'Login successful',
-        'user_id': user.id,
-        'email':   user.email
-    }), 200
+    access_token = create_access_token(identity=str(user.id))
+    return jsonify({'access_token': access_token, 'user_id': user.id}), 200

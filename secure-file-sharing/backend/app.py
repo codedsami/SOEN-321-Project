@@ -1,11 +1,15 @@
 from flask import Flask
+from flask_jwt_extended import JWTManager
 from models import db
-from auth import auth_bp
+from routes.auth import auth_bp
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///secure_files.db'
+app.config['JWT_SECRET_KEY'] = 'your-secret-key'
 
 db.init_app(app)
+JWTManager(app)
+
 app.register_blueprint(auth_bp)
 
 @app.route('/')
