@@ -44,3 +44,34 @@ def register():
     db.session.commit()
 
     return jsonify({'message': 'User registered successfully', 'user_id': user.id}), 201
+
+#login route
+@auth_bp.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email    = data.get('email')
+    password = data.get('password')
+
+    # Look up the user by email
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({'error': 'Invalid credentials'}), 401
+
+    # Verify bcrypt password hash
+    if not verify_password(password, user.password_hash):
+        return jsonify({'error': 'Invalid credentials'}), 401
+
+    # Decrypt the RSA private key using the password
+    private_key = decrypt_private_key(
+        user.private_key_enc,
+        user.private_key_salt,
+        user.private_key_nonce,
+        password
+    )
+
+    # Return success
+    return jsonify({
+        'message': 'Login successful',
+        'user_id': user.id,
+        'email':   user.email
+    }), 200
