@@ -1,12 +1,15 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from cryptography.exceptions import InvalidTag
 from models import db, User, File, Share
 from crypto import (
     load_public_key_from_pem,
     wrap_fek, generate_fek,
     encrypt_file, hash_file,
     decrypt_private_key,
+    unwrap_fek, decrypt_file,
 )
+import io
 
 files_bp = Blueprint('files', __name__)
 
@@ -90,6 +93,8 @@ def upload_file():
 #    2. Fetch user's encrypted RSA private key from DB
 #    3. Re-derive AES key via PBKDF2(password, stored salt)
 #    4. Decrypt RSA private key blob with AES-256-GCM (unmarshal)
+#    5. Unwrap FEK using RSA-OAEP with decrypted private key
+#    6. Decrypt file ciphertext (AES-256-GCM or ChaCha20-Poly1305)
 # ============================================================
 @files_bp.route('/files/<int:file_id>/download', methods=['POST'])
 @jwt_required()
@@ -127,5 +132,32 @@ def download_file(file_id):
     except Exception:
         return jsonify({'error': 'Invalid password — cannot decrypt private key'}), 401
 
-    # Placeholder until FEK unwrap + file decryption are added
-    return jsonify({'status': 'private_key_decrypted'}), 200
+    # Step 5 — unwrap the FEK using RSA-OAEP with the decrypted private key
+    try:
+        fek = unwrap_fek(wrapped_fek, private_key)
+    except Exception:
+        return jsonify({'error': 'Failed to unwrap file encryption key'}), 500
+
+    # Step 6 — decrypt file ciphertext with FEK (AES-256-GCM or ChaCha20-Poly1305)
+    try:
+        plaintext = decrypt_file(
+            file_record.ciphertext,
+            file_record.enc_algo,
+            fek,
+            file_record.nonce,
+        )
+    except InvalidTag:
+        return jsonify({
+            'error': 'Decryption failed — authentication tag mismatch',
+            'integrity': False,
+        }), 422
+    except Exception as e:
+        return jsonify({'error': f'Decryption error: {str(e)}'}), 500
+
+    # Integrity check added in next commit
+    return send_file(
+        io.BytesIO(plaintext),
+        download_name=file_record.filename,
+        as_attachment=True,
+        mimetype='application/octet-stream',
+    )
