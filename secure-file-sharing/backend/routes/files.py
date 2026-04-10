@@ -1,10 +1,11 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, User, File
+from models import db, User, File, Share
 from crypto import (
     load_public_key_from_pem,
     wrap_fek, generate_fek,
     encrypt_file, hash_file,
+    decrypt_private_key,
 )
 
 files_bp = Blueprint('files', __name__)
@@ -79,3 +80,52 @@ def upload_file():
     db.session.commit()
 
     return jsonify(file_record.to_dict()), 201
+
+
+# ============================================================
+#  DOWNLOAD — POST /files/<id>/download
+#  Requires password in JSON body to unlock the private key.
+#  Steps implemented so far:
+#    1. Verify JWT and ownership / share access
+#    2. Fetch user's encrypted RSA private key from DB
+#    3. Re-derive AES key via PBKDF2(password, stored salt)
+#    4. Decrypt RSA private key blob with AES-256-GCM (unmarshal)
+# ============================================================
+@files_bp.route('/files/<int:file_id>/download', methods=['POST'])
+@jwt_required()
+def download_file(file_id):
+    user_id = int(get_jwt_identity())
+
+    data = request.get_json()
+    if not data or 'password' not in data:
+        return jsonify({'error': 'password required in request body'}), 400
+    password = data['password']
+
+    # Step 1 — verify file exists and user is authorised
+    file_record = File.query.get_or_404(file_id)
+
+    if file_record.owner_id == user_id:
+        wrapped_fek = file_record.wrapped_fek
+    else:
+        share = Share.query.filter_by(file_id=file_id, recipient_id=user_id).first()
+        if not share:
+            return jsonify({'error': 'Access denied'}), 403
+        wrapped_fek = share.wrapped_fek
+
+    # Step 2 — fetch encrypted private key blob from DB
+    user = User.query.get_or_404(user_id)
+
+    # Steps 3-4 — re-derive AES key via PBKDF2(password, salt) then
+    #             decrypt the RSA private key blob (AES-256-GCM unmarshal)
+    try:
+        private_key = decrypt_private_key(
+            user.private_key_enc,
+            user.private_key_salt,
+            user.private_key_nonce,
+            password,
+        )
+    except Exception:
+        return jsonify({'error': 'Invalid password — cannot decrypt private key'}), 401
+
+    # Placeholder until FEK unwrap + file decryption are added
+    return jsonify({'status': 'private_key_decrypted'}), 200
