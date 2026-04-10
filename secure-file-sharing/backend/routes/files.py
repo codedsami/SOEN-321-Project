@@ -8,6 +8,7 @@ from crypto import (
     encrypt_file, hash_file,
     decrypt_private_key,
     unwrap_fek, decrypt_file,
+    verify_file_integrity,
 )
 import io
 
@@ -88,13 +89,16 @@ def upload_file():
 # ============================================================
 #  DOWNLOAD — POST /files/<id>/download
 #  Requires password in JSON body to unlock the private key.
-#  Steps implemented so far:
+#  Full security chain:
 #    1. Verify JWT and ownership / share access
 #    2. Fetch user's encrypted RSA private key from DB
 #    3. Re-derive AES key via PBKDF2(password, stored salt)
 #    4. Decrypt RSA private key blob with AES-256-GCM (unmarshal)
 #    5. Unwrap FEK using RSA-OAEP with decrypted private key
 #    6. Decrypt file ciphertext (AES-256-GCM or ChaCha20-Poly1305)
+#    7. Recompute hash of decrypted plaintext
+#    8. Compare recomputed hash vs stored hash
+#    9. Return file + integrity result; 422 on mismatch
 # ============================================================
 @files_bp.route('/files/<int:file_id>/download', methods=['POST'])
 @jwt_required()
@@ -154,10 +158,28 @@ def download_file(file_id):
     except Exception as e:
         return jsonify({'error': f'Decryption error: {str(e)}'}), 500
 
-    # Integrity check added in next commit
-    return send_file(
+    # Step 7-8 — recompute hash of decrypted plaintext and compare to stored value
+    recomputed_hash = hash_file(plaintext, file_record.hash_algo)
+    integrity_ok    = verify_file_integrity(plaintext, file_record.file_hash, file_record.hash_algo)
+
+    # Step 9 — integrity result: abort with detail if mismatch, else send file
+    if not integrity_ok:
+        return jsonify({
+            'error':           'Integrity check FAILED — file has been tampered with',
+            'integrity':       False,
+            'hash_algo':       file_record.hash_algo,
+            'stored_hash':     file_record.file_hash,
+            'recomputed_hash': recomputed_hash,
+        }), 422
+
+    response = send_file(
         io.BytesIO(plaintext),
         download_name=file_record.filename,
         as_attachment=True,
         mimetype='application/octet-stream',
     )
+    # Integrity metadata surfaced in response headers for the client to inspect
+    response.headers['X-Integrity-Check'] = 'PASS'
+    response.headers['X-Hash-Algorithm']  = file_record.hash_algo
+    response.headers['X-File-Hash']       = file_record.file_hash
+    return response
