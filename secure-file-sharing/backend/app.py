@@ -2,6 +2,7 @@ from flask import Flask
 from flask_jwt_extended import JWTManager
 from models import db
 from routes.auth import auth_bp
+from routes.files import files_bp
 from dotenv import load_dotenv
 import os
 
@@ -14,6 +15,7 @@ db.init_app(app)
 JWTManager(app)
 
 app.register_blueprint(auth_bp)
+app.register_blueprint(files_bp)
 
 @app.route('/')
 def index():
