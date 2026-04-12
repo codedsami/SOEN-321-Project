@@ -4,7 +4,7 @@ from models import db, User
 from crypto import (
     hash_password, verify_password,
     generate_rsa_keypair, serialize_public_key,
-    encrypt_private_key, decrypt_private_key
+    encrypt_private_key,
 )
 
 auth_bp = Blueprint('auth', __name__)
@@ -61,14 +61,6 @@ def login():
     # Verify bcrypt password hash
     if not verify_password(password, user.password_hash):
         return jsonify({'error': 'Invalid credentials'}), 401
-
-    # Decrypt the RSA private key using the password
-    private_key = decrypt_private_key(
-        user.private_key_enc,
-        user.private_key_salt,
-        user.private_key_nonce,
-        password
-    )
 
     # Return success
     access_token = create_access_token(identity=str(user.id))

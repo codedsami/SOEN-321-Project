@@ -31,6 +31,38 @@ def list_files():
 
 
 # ============================================================
+#  SHARED WITH ME — GET /files/shared-with-me
+#  Returns metadata for every file another user has shared with
+#  the requesting user.  No ciphertext is returned here.
+# ============================================================
+@files_bp.route('/files/shared-with-me', methods=['GET'])
+@jwt_required()
+def shared_with_me():
+    user_id = int(get_jwt_identity())
+    shares = Share.query.filter_by(recipient_id=user_id).all()
+    result = []
+    for share in shares:
+        f = db.session.get(File, share.file_id)
+        if not f:
+            continue
+        owner = db.session.get(User, f.owner_id)
+        result.append({
+            'share_id':    share.id,
+            'file_id':     f.id,
+            'filename':    f.filename,
+            'file_size':   f.file_size,
+            'owner_email': owner.email if owner else None,
+            'enc_algo':    f.enc_algo,
+            'hash_algo':   f.hash_algo,
+            'file_hash':   f.file_hash,
+            'shared_at':   share.shared_at.isoformat(),
+            'expires_at':  share.expires_at.isoformat() if share.expires_at else None,
+            'can_edit':    share.can_edit,
+        })
+    return jsonify(result), 200
+
+
+# ============================================================
 #  UPLOAD — POST /files/upload
 #  1. Hash plaintext with selected algorithm (before encryption)
 #  2. Generate a fresh random FEK (256-bit, CSPRNG)
@@ -219,6 +251,130 @@ def download_file(file_id):
     response.headers['X-Hash-Algorithm']  = file_record.hash_algo
     response.headers['X-File-Hash']       = file_record.file_hash
     return response
+
+
+# ============================================================
+#  EDIT — PUT /files/<id>
+#  Replaces a file with a new encrypted version.
+#  Allowed for: file owner OR any recipient who has can_edit=True.
+#
+#  Security chain:
+#    1. Verify JWT + access (owner or can_edit share, not expired)
+#    2. Decrypt caller's private key via PBKDF2(password) to prove
+#       they genuinely hold the key — not just the JWT
+#    3. Unwrap caller's copy of the FEK to confirm real access
+#    4. Hash new plaintext BEFORE encryption
+#    5. Generate a brand-new random FEK (old FEK is discarded)
+#    6. Encrypt new plaintext with new FEK
+#    7. Re-wrap new FEK for the owner
+#    8. Re-wrap new FEK for every existing recipient
+#    9. Persist updated ciphertext, nonce, hash, and wrapped FEKs
+# ============================================================
+@files_bp.route('/files/<int:file_id>', methods=['PUT'])
+@jwt_required()
+def edit_file(file_id):
+    user_id = int(get_jwt_identity())
+
+    # --- Step 1: locate file and verify caller has edit access ---
+    file_record = db.session.get(File, file_id)
+    if not file_record:
+        return jsonify({'error': 'File not found'}), 404
+
+    is_owner = (file_record.owner_id == user_id)
+
+    if is_owner:
+        caller_wrapped_fek = file_record.wrapped_fek
+    else:
+        share = Share.query.filter_by(
+            file_id=file_id, recipient_id=user_id
+        ).first()
+        if not share:
+            return jsonify({'error': 'Access denied'}), 403
+        if not share.can_edit:
+            return jsonify({'error': 'You do not have edit permission for this file'}), 403
+        if share.expires_at and share.expires_at < datetime.utcnow():
+            return jsonify({'error': 'Your shared access has expired'}), 403
+        caller_wrapped_fek = share.wrapped_fek
+
+    # --- parse multipart request ---
+    uploaded = request.files.get('file')
+    if not uploaded:
+        return jsonify({'error': 'No file provided'}), 400
+    if uploaded.filename == '':
+        return jsonify({'error': 'Empty filename'}), 400
+
+    password = request.form.get('password')
+    if not password:
+        return jsonify({'error': 'password required'}), 400
+
+    enc_algo  = request.form.get('enc_algo', file_record.enc_algo).lower()
+    hash_algo = request.form.get('hash_algo', file_record.hash_algo).lower()
+
+    if enc_algo not in SUPPORTED_ENC_ALGOS:
+        return jsonify({'error': f'Unsupported enc_algo: {enc_algo}'}), 400
+    if hash_algo not in SUPPORTED_HASH_ALGOS:
+        return jsonify({'error': f'Unsupported hash_algo: {hash_algo}'}), 400
+
+    new_plaintext = uploaded.read()
+
+    # --- Step 2-3: decrypt caller's private key and verify FEK access ---
+    caller = db.session.get(User, user_id)
+    try:
+        caller_private_key = decrypt_private_key(
+            caller.private_key_enc,
+            caller.private_key_salt,
+            caller.private_key_nonce,
+            password,
+        )
+    except Exception:
+        return jsonify({'error': 'Invalid password — cannot decrypt private key'}), 401
+
+    try:
+        unwrap_fek(caller_wrapped_fek, caller_private_key)  # access proof only
+    except Exception:
+        return jsonify({'error': 'Failed to verify file access key'}), 500
+
+    # --- Steps 4-6: hash → new FEK → encrypt ---
+    new_hash              = hash_file(new_plaintext, hash_algo)
+    new_fek               = generate_fek()
+    new_ciphertext, nonce = encrypt_file(new_plaintext, enc_algo, new_fek)
+
+    # --- Step 7: re-wrap new FEK for the owner ---
+    owner = db.session.get(User, file_record.owner_id)
+    owner_pem = owner.public_key_pem
+    if isinstance(owner_pem, str):
+        owner_pem = owner_pem.encode()
+    owner_public_key       = load_public_key_from_pem(owner_pem)
+    new_owner_wrapped_fek  = wrap_fek(new_fek, owner_public_key)
+
+    # --- Step 8: re-wrap new FEK for every existing recipient ---
+    existing_shares = Share.query.filter_by(file_id=file_id).all()
+    for share in existing_shares:
+        recipient = db.session.get(User, share.recipient_id)
+        if not recipient:
+            continue
+        pem = recipient.public_key_pem
+        if isinstance(pem, str):
+            pem = pem.encode()
+        share.wrapped_fek = wrap_fek(new_fek, load_public_key_from_pem(pem))
+
+    # --- Step 9: persist everything ---
+    file_record.filename   = uploaded.filename
+    file_record.file_size  = len(new_plaintext)
+    file_record.ciphertext = new_ciphertext
+    file_record.wrapped_fek = new_owner_wrapped_fek
+    file_record.nonce      = nonce
+    file_record.file_hash  = new_hash
+    file_record.enc_algo   = enc_algo
+    file_record.hash_algo  = hash_algo
+
+    db.session.commit()
+
+    response = file_record.to_dict()
+    if hash_algo == 'md5':
+        response['warning'] = 'MD5 is cryptographically broken and should not be used for security purposes'
+
+    return jsonify(response), 200
 
 
 @files_bp.route('/files/<int:file_id>/share', methods=['POST'])
