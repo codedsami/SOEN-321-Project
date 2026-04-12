@@ -14,6 +14,9 @@ import io
 
 files_bp = Blueprint('files', __name__)
 
+SUPPORTED_ENC_ALGOS = {'aes-256-gcm', 'chacha20-poly1305'}
+SUPPORTED_HASH_ALGOS = {'sha256', 'sha512', 'md5'}
+
 
 # ============================================================
 #  LIST FILES — GET /files
@@ -39,18 +42,22 @@ def list_files():
 @jwt_required()
 def upload_file():
     user_id = int(get_jwt_identity())
-    user = User.query.get_or_404(user_id)
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
 
     uploaded = request.files.get('file')
     if not uploaded:
         return jsonify({'error': 'No file provided'}), 400
+    if uploaded.filename == '':
+        return jsonify({'error': 'Empty filename'}), 400
 
     enc_algo  = request.form.get('enc_algo', 'aes-256-gcm').lower()
     hash_algo = request.form.get('hash_algo', 'sha256').lower()
 
-    if enc_algo not in ('aes-256-gcm', 'chacha20-poly1305'):
+    if enc_algo not in SUPPORTED_ENC_ALGOS:
         return jsonify({'error': f'Unsupported enc_algo: {enc_algo}'}), 400
-    if hash_algo not in ('sha256', 'sha512', 'md5'):
+    if hash_algo not in SUPPORTED_HASH_ALGOS:
         return jsonify({'error': f'Unsupported hash_algo: {hash_algo}'}), 400
 
     plaintext = uploaded.read()
@@ -83,7 +90,11 @@ def upload_file():
     db.session.add(file_record)
     db.session.commit()
 
-    return jsonify(file_record.to_dict()), 201
+    response = file_record.to_dict()
+    if hash_algo == 'md5':
+        response['warning'] = 'MD5 is cryptographically broken and should not be used for security purposes'
+
+    return jsonify(response), 201
 
 
 # ============================================================
@@ -122,7 +133,9 @@ def download_file(file_id):
         wrapped_fek = share.wrapped_fek
 
     # Step 2 — fetch encrypted private key blob from DB
-    user = User.query.get_or_404(user_id)
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
 
     # Steps 3-4 — re-derive AES key via PBKDF2(password, salt) then
     #             decrypt the RSA private key blob (AES-256-GCM unmarshal)
