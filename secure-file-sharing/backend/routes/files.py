@@ -96,6 +96,30 @@ def upload_file():
 
     return jsonify(response), 201
 
+@files_bp.route('/files', methods=['GET'])
+@jwt_required()
+def list_files():
+    user_id = get_jwt_identity()
+    files = File.query.filter_by(owner_id=int(user_id)).all()
+    return jsonify({'files': [f.to_dict() for f in files]}), 200
+
+
+@files_bp.route('/files/<int:file_id>', methods=['DELETE'])
+@jwt_required()
+def delete_list(file_id):
+    user_id = get_jwt_identity()
+
+    file_record = db.session.get(File, file_id)
+    if not file_record:
+        return jsonify({'ERROR': 'File not found'}), 404
+
+    if file_record.owner_id != int(user_id):
+        return jsonify({'ERROR': 'Forbidden - you do not own this file'}), 403
+
+    db.session.delete(file_record)
+    db.session.commit()
+
+    return jsonify({'MESSAGE': f'File {file_id} deleted successfully'}), 200
 
 # ============================================================
 #  DOWNLOAD — POST /files/<id>/download
