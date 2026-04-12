@@ -211,7 +211,7 @@ class Share(db.Model):
             'owner_id':     self.owner_id,
             'recipient_id': self.recipient_id,
             'wrapped_fek':  _b64(self.wrapped_fek),
-            'shared_at':    self.shared_at.isoformat()
+            'shared_at':    self.shared_at.isoformat(),
             'can_edit': self.can_edit,
             'expires_at': self.expires_at.isoformat() if self.expires_at else None
         }
