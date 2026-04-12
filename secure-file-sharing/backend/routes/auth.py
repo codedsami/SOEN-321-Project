@@ -70,6 +70,13 @@ def login():
         password
     )
 
+#logout route
+@auth_bp.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    return jsonify({'message': 'Logged out successfully. Please delete your token.'}), 200
+
+
     # Return success
     access_token = create_access_token(identity=str(user.id))
     return jsonify({'access_token': access_token, 'user_id': user.id}), 200
