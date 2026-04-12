@@ -17,7 +17,7 @@
 | Shaheer Mohammad | [@Zniniz](https://github.com/Zniniz) | 40252466 |  |
 | Omar Elmasaoudi| [@Omare04](https://github.com/Omare04) | 40255123  |  |
 | Yassine ibhir | [@Yibhir0](https://github.com/Yibhir0) |40251116  |  |
-| xyz | [@xyz](https://github.com/xyz) |  | |
+| Tanim Chowdhury | [@Nimzstb](https://github.com/Nimzstb) | 40245607 | |
 | xyz | [@xyz](https://github.com/xyz) |  |  |
 
 
