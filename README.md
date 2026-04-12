@@ -17,7 +17,7 @@
 | Shaheer Mohammad | [@Zniniz](https://github.com/Zniniz) | 40252466 |  |
 | Omar Elmasaoudi| [@Omare04](https://github.com/Omare04) | 40255123  |  |
 | Yassine ibhir | [@Yibhir0](https://github.com/Yibhir0) |40251116  |  |
-| Tanim Chowdhury | [@Nimzstb](https://github.com/Nimzstb) | 40245607 | |
+| Tanim Chowdhury | [@Nimzstb](https://github.com/Nimzstb) | 40245607 | Security Analysis and Discussion |
 | xyz | [@xyz](https://github.com/xyz) |  |  |
 
 
