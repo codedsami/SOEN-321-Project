@@ -45,21 +45,21 @@ def upload_file():
     user_id = int(get_jwt_identity())
     user = db.session.get(User, user_id)
     if not user:
-        return jsonify({'error': 'User not found'}), 404
+        return jsonify({'ERROR': 'User not found'}), 404
 
     uploaded = request.files.get('file')
     if not uploaded:
-        return jsonify({'error': 'No file provided'}), 400
+        return jsonify({'ERROR': 'No file provided'}), 400
     if uploaded.filename == '':
-        return jsonify({'error': 'Empty filename'}), 400
+        return jsonify({'ERROR': 'Empty filename'}), 400
 
     enc_algo  = request.form.get('enc_algo', 'aes-256-gcm').lower()
     hash_algo = request.form.get('hash_algo', 'sha256').lower()
 
     if enc_algo not in SUPPORTED_ENC_ALGOS:
-        return jsonify({'error': f'Unsupported enc_algo: {enc_algo}'}), 400
+        return jsonify({'ERROR': f'Unsupported enc_algo: {enc_algo}'}), 400
     if hash_algo not in SUPPORTED_HASH_ALGOS:
-        return jsonify({'error': f'Unsupported hash_algo: {hash_algo}'}), 400
+        return jsonify({'ERROR': f'Unsupported hash_algo: {hash_algo}'}), 400
 
     plaintext = uploaded.read()
 
@@ -136,7 +136,7 @@ def download_file(file_id):
 
     data = request.get_json()
     if not data or 'password' not in data:
-        return jsonify({'error': 'password required in request body'}), 400
+        return jsonify({'ERROR': 'password required in request body'}), 400
     password = data['password']
 
     # Step 1 — verify file exists and user is authorised
@@ -147,18 +147,18 @@ def download_file(file_id):
     else:
         share = Share.query.filter_by(file_id=file_id, recipient_id=user_id).first()
         if not share:
-            return jsonify({'error': 'Access denied'}), 403
+            return jsonify({'ERROR': 'Access denied'}), 403
         
         # NEW EXPIRATION CHECK FOR US-6
         if share.expires_at and share.expires_at < datetime.utcnow():
-            return jsonify({'error': 'This shared link has expired'}), 403
+            return jsonify({'ERROR': 'This shared link has expired'}), 403
         
         wrapped_fek = share.wrapped_fek
 
     # Step 2 — fetch encrypted private key blob from DB
     user = db.session.get(User, user_id)
     if not user:
-        return jsonify({'error': 'User not found'}), 404
+        return jsonify({'ERROR': 'User not found'}), 404
 
     # Steps 3-4 — re-derive AES key via PBKDF2(password, salt) then
     #             decrypt the RSA private key blob (AES-256-GCM unmarshal)
@@ -170,13 +170,13 @@ def download_file(file_id):
             password,
         )
     except Exception:
-        return jsonify({'error': 'Invalid password — cannot decrypt private key'}), 401
+        return jsonify({'ERROR': 'Invalid password — cannot decrypt private key'}), 401
 
     # Step 5 — unwrap the FEK using RSA-OAEP with the decrypted private key
     try:
         fek = unwrap_fek(wrapped_fek, private_key)
     except Exception:
-        return jsonify({'error': 'Failed to unwrap file encryption key'}), 500
+        return jsonify({'ERROR': 'Failed to unwrap file encryption key'}), 500
 
     # Step 6 — decrypt file ciphertext with FEK (AES-256-GCM or ChaCha20-Poly1305)
     try:
@@ -188,11 +188,11 @@ def download_file(file_id):
         )
     except InvalidTag:
         return jsonify({
-            'error': 'Decryption failed — authentication tag mismatch',
+            'ERROR': 'Decryption failed — authentication tag mismatch',
             'integrity': False,
         }), 422
     except Exception as e:
-        return jsonify({'error': f'Decryption error: {str(e)}'}), 500
+        return jsonify({'ERROR': f'Decryption ERROR: {str(e)}'}), 500
 
     # Step 7-8 — recompute hash of decrypted plaintext and compare to stored value
     recomputed_hash = hash_file(plaintext, file_record.hash_algo)
@@ -201,7 +201,7 @@ def download_file(file_id):
     # Step 9 — integrity result: abort with detail if mismatch, else send file
     if not integrity_ok:
         return jsonify({
-            'error':           'Integrity check FAILED — file has been tampered with',
+            'ERROR':           'Integrity check FAILED — file has been tampered with',
             'integrity':       False,
             'hash_algo':       file_record.hash_algo,
             'stored_hash':     file_record.file_hash,
@@ -302,3 +302,103 @@ def share_file(file_id):
         return jsonify({'ERROR': f'Sharing failed: {str(e)}'}), 400
 
 
+@files_bp.route('/files/<int:file_id>/edit', methods=['PUT'])
+@jwt_required()
+def edit_file(file_id):
+    user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
+
+    # Even the shared user can edit
+    file_record = db.session.get(File, file_id)
+    if not file_record:
+        return jsonify({'ERROR': 'File not found or unauthorized'}), 404
+    
+    is_owner = (file_record.owner_id == user_id)
+    is_authorized_editor = False
+
+    if not is_owner:
+        share = Share.query.filter_by(file_id=file_id, recipient_id=user_id).first()
+        # Check expiration
+        if share and share.can_edit:
+            if not share.expires_at or share.expires_at > datetime.utcnow():
+                is_authorized_editor = True
+
+    if not is_owner and not is_authorized_editor:
+        return jsonify({'ERROR': 'Forbidden - You do not have permission to edit this file'}), 403
+
+  
+    uploaded = request.files.get('file')
+    if not uploaded:
+        return jsonify({'ERROR': 'No file provided'}), 400
+
+    enc_algo  = request.form.get('enc_algo', file_record.enc_algo).lower()
+    hash_algo = request.form.get('hash_algo', file_record.hash_algo).lower()
+
+    if enc_algo not in SUPPORTED_ENC_ALGOS:
+        return jsonify({'ERROR': f'Unsupported enc_algo: {enc_algo}'}), 400
+    if hash_algo not in SUPPORTED_HASH_ALGOS:
+        return jsonify({'ERROR': f'Unsupported hash_algo: {hash_algo}'}), 400
+
+
+    plaintext = uploaded.read()
+
+    try:
+
+        new_hash = hash_file(
+            plaintext,
+            hash_algo
+        )
+        new_fek = generate_fek()
+        new_ciphertext, new_nonce = encrypt_file(
+            plaintext,
+            enc_algo,
+            new_fek
+        )
+
+        owner = db.session.get(User, file_record.owner_id)
+        pem = owner.public_key_pem
+        if isinstance(pem, str):
+            pem = pem.encode()
+        owner_public_key = load_public_key_from_pem(pem)
+        new_wrapped_fek_owner = wrap_fek(new_fek, owner_public_key)
+
+        existing_shares = Share.query.filter_by(file_id=file_id).all()
+        for share in existing_shares:
+            recipient = db.session.get(User, share.recipient_id)
+            if recipient:
+                r_pem = recipient.public_key_pem
+                if isinstance(r_pem, str):
+                    r_pem = r_pem.encode()
+                recipient_pub_key = load_public_key_from_pem(r_pem)
+                share.wrapped_fek = wrap_fek(new_fek, recipient_pub_key)
+
+        # Update File
+        file_record.filename = uploaded.filename
+        file_record.file_size = len(plaintext)
+        file_record.ciphertext = new_ciphertext
+        file_record.wrapped_fek = new_wrapped_fek_owner
+        file_record.nonce = new_nonce
+        file_record.file_hash = new_hash
+        file_record.enc_algo    = enc_algo
+        file_record.hash_algo   = hash_algo
+        file_record.upload_date = datetime.utcnow()
+
+        db.session.commit()
+
+        return jsonify({
+        'message': 'File updated and re-encrypted successfully',
+        'file_id': file_id,
+        'new_hash': new_hash,
+        'enc_algo': enc_algo,
+        'recipients_rekeyed': len(existing_shares)
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ERROR': f'Edit failed due to server error: {str(e)}'}), 500
+
+
+
+
+
+        
