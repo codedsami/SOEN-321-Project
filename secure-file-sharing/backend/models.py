@@ -199,6 +199,11 @@ class Share(db.Model):
 
     shared_at    = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # NEW COLUMNS FOR US-6 
+    can_edit = db.Column(db.Boolean, default=False, nullable=False)# Support write/edit permission for shared users
+    # Add expiration time to shared links
+    expires_at = db.Column(db.DateTime, nullable=True)
+
     def to_dict(self):
         return {
             'id':           self.id,
@@ -206,7 +211,9 @@ class Share(db.Model):
             'owner_id':     self.owner_id,
             'recipient_id': self.recipient_id,
             'wrapped_fek':  _b64(self.wrapped_fek),
-            'shared_at':    self.shared_at.isoformat()
+            'shared_at':    self.shared_at.isoformat(),
+            'can_edit': self.can_edit,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None
         }
 
     def __repr__(self):

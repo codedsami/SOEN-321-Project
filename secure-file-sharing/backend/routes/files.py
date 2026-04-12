@@ -10,6 +10,7 @@ from crypto import (
     unwrap_fek, decrypt_file,
     verify_file_integrity,
 )
+from datetime import datetime, timedelta
 import io
 
 files_bp = Blueprint('files', __name__)
@@ -96,13 +97,6 @@ def upload_file():
 
     return jsonify(response), 201
 
-@files_bp.route('/files', methods=['GET'])
-@jwt_required()
-def list_files():
-    user_id = get_jwt_identity()
-    files = File.query.filter_by(owner_id=int(user_id)).all()
-    return jsonify({'files': [f.to_dict() for f in files]}), 200
-
 
 @files_bp.route('/files/<int:file_id>', methods=['DELETE'])
 @jwt_required()
@@ -154,6 +148,11 @@ def download_file(file_id):
         share = Share.query.filter_by(file_id=file_id, recipient_id=user_id).first()
         if not share:
             return jsonify({'error': 'Access denied'}), 403
+        
+        # NEW EXPIRATION CHECK FOR US-6
+        if share.expires_at and share.expires_at < datetime.utcnow():
+            return jsonify({'error': 'This shared link has expired'}), 403
+        
         wrapped_fek = share.wrapped_fek
 
     # Step 2 — fetch encrypted private key blob from DB
@@ -220,3 +219,86 @@ def download_file(file_id):
     response.headers['X-Hash-Algorithm']  = file_record.hash_algo
     response.headers['X-File-Hash']       = file_record.file_hash
     return response
+
+
+@files_bp.route('/files/<int:file_id>/share', methods=['POST'])
+@jwt_required()
+def share_file(file_id):
+    user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
+
+    data = request.get_json()
+    if not data or 'password' not in data or 'recipient_email' not in data:
+        return jsonify({'ERROR': 'Password and Recipient Email required'}), 400
+
+    password = data['password']
+    recipient_email = data['recipient_email']
+
+    can_edit = data.get('can_edit', False)
+    expires_in_days = data.get('expires_in_days')
+
+    file_record = db.session.get(File, file_id)
+    if not file_record or file_record.owner_id != user_id:
+        return jsonify({'ERROR': 'File not found or unauthorized'}), 404
+
+    recipient = User.query.filter_by(email=recipient_email).first()
+    if not recipient:
+        return jsonify({'ERROR': f'No user found with email: {recipient_email}'}), 404
+    if recipient.id == user_id:
+        return jsonify({'ERROR': 'Cannot share a file with yourself'}), 400
+
+    try:
+
+        user_private_key = decrypt_private_key(
+            user.private_key_enc, 
+            user.private_key_salt, 
+            user.private_key_nonce, 
+            password
+        )
+
+        fek = unwrap_fek(
+            file_record.wrapped_fek,
+            user_private_key
+        )
+
+        pem = recipient.public_key_pem
+        if isinstance(pem, str):
+            pem = pem.encode()
+        recipient_public_key = load_public_key_from_pem(pem)
+
+        new_wrapped_fek = wrap_fek(
+            fek, 
+            recipient_public_key
+        )
+
+        expiration_date = None
+        if expires_in_days:
+            expiration_date = datetime.utcnow() + timedelta(days=int(expires_in_days))
+        
+        share_record = Share(
+            file_id=file_record.id,
+            owner_id=user_id,
+            recipient_id=recipient.id,
+            wrapped_fek=new_wrapped_fek,
+            can_edit=can_edit,
+            expires_at=expiration_date
+        )
+        db.session.add(share_record)
+        db.session.commit()
+
+        # Generate ID-based link and mock the email
+        access_link = f"http://localhost:5000/files/{file_record.id}/download"
+        print(f"\n[MOCK EMAIL SERVER] Sending email to {recipient_email}...")
+        print(f"Subject: {user.email} shared a secure file with you!")
+        print(f"Body: Access it here: {access_link}\n")
+
+        return jsonify({
+            'message': f'File securely shared with {recipient_email}',
+            'access_link': access_link,
+            'expires_at': expiration_date.isoformat() if expiration_date else None
+        }), 200
+
+    except Exception as e:
+        return jsonify({'ERROR': f'Sharing failed: {str(e)}'}), 400
+
+
