@@ -6,27 +6,42 @@ participant DB
 
 User -> FE : Click download on file
 
-FE -> BE : GET /files/{id}
+FE -> BE : POST /files/{id}/download\n{ password }\n[JWT in header]
+
 BE -> BE : Validate JWT
-BE -> DB : Fetch file record\n(\n  ciphertext,\n  wrapped_FEK,\n  nonce,\n  auth_tag,\n  stored_hash,\n  enc_algo,\n  hash_algo\n)
-DB --> BE : encrypted file data
-BE --> FE : encrypted file data
 
-note over FE : All decryption happens\nclient-side only — server\nnever sees plaintext or raw FEK
+BE -> DB : Check ownership or share access\n(file.owner_id == jwt.user_id\nOR share entry exists for user)
+DB --> BE : access result
 
-FE -> FE : Prompt user for password
-FE -> FE : Derive key from password\n(PBKDF2 + stored salt)
-FE -> FE : Decrypt private key blob\n→ RSA key object
-FE -> FE : Unwrap FEK using RSA\nprivate key (OAEP)\n→ raw 32-byte FEK
-FE -> FE : Decrypt ciphertext using FEK + nonce\n(AES-256-GCM or ChaCha20-Poly1305)
-FE -> FE : Verify auth tag\n→ confirms ciphertext was not tampered with
+alt access denied
+    BE --> FE : 403 Forbidden
+    FE --> User : Error — access denied
+else access granted
 
-FE -> FE : Recompute hash of decrypted plaintext\nusing stored hash_algo\n(SHA-256 / SHA-512 / MD5)
-FE -> FE : Compare recomputed hash\nvs stored hash
+    BE -> DB : Fetch file record\n(\n  ciphertext,\n  wrapped_FEK,\n  nonce,\n  stored_hash,\n  enc_algo,\n  hash_algo\n)
+    DB --> BE : encrypted file data
 
-alt hashes match
-    FE --> User : Plaintext file\n+ INTEGRITY PASS (hashes match)
-else hashes differ
-    FE --> User : WARNING — integrity FAILED\nFile may have been tampered with
+    BE -> DB : Fetch user encrypted private key\n(private_key_enc, salt, nonce)
+    DB --> BE : encrypted private key blob
+
+    BE -> BE : Derive AES key from password\n(PBKDF2 + stored salt)
+    BE -> BE : Decrypt private key blob\n→ RSA private key object\n(AES-256-GCM)
+
+    BE -> BE : Unwrap FEK using RSA\nprivate key (OAEP)\n→ raw 32-byte FEK
+
+    BE -> BE : Decrypt ciphertext using FEK + nonce\n(AES-256-GCM or ChaCha20-Poly1305)
+    BE -> BE : Verify auth tag\n→ confirms ciphertext was not tampered with
+
+    BE -> BE : Recompute hash of decrypted plaintext\nusing stored hash_algo\n(SHA-256 / SHA-512 / MD5)
+    BE -> BE : Compare recomputed hash\nvs stored hash
+
+    alt hashes match
+        BE --> FE : 200 OK — plaintext file bytes\n+ headers: X-Integrity-Check: PASS
+        FE --> User : Downloaded file\n+ INTEGRITY PASS (hashes match)
+    else hashes differ
+        BE --> FE : 422 Unprocessable\n{ integrity: false, stored_hash, recomputed_hash }
+        FE --> User : WARNING — integrity FAILED\nFile may have been tampered with
+    end
+
 end
 @enduml

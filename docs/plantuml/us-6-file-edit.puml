@@ -4,51 +4,54 @@ participant FE
 participant BE
 participant DB
 
-User -> FE : Open file for editing
+User -> FE : Upload edited file\n+ own password\n(must be owner or shared user with can_edit)
 
-FE -> BE : GET /files/{id}
-BE -> BE : Validate JWT (must be owner)
-BE -> DB : Fetch file record\n(\n  ciphertext,\n  wrapped_FEK,\n  nonce,\n  auth_tag,\n  stored_hash,\n  enc_algo,\n  hash_algo\n)
-DB --> BE : encrypted file data
-BE --> FE : encrypted file data
+FE -> BE : PUT /files/{id}\n(new file bytes, password, enc_algo, hash_algo)\n[multipart/form-data, JWT in header]
 
-note over FE : Decrypt client-side\nbefore presenting to user
+BE -> BE : Validate JWT
 
-FE -> FE : Derive key from password (PBKDF2)
-FE -> FE : Decrypt private key blob → RSA key object
-FE -> FE : Unwrap FEK using RSA private key (OAEP)
-FE -> FE : Decrypt ciphertext using FEK + nonce\n(AES-256-GCM or ChaCha20-Poly1305)
-FE --> User : Plaintext file (editable)
+BE -> DB : Fetch file record
+DB --> BE : file record
 
-User -> FE : Make edits and save
+BE -> DB : Check access:\nowner OR share with can_edit=true AND not expired
+DB --> BE : access result
 
-note over FE : Re-encrypt with brand new FEK\nOld FEK is discarded
+alt no access or expired
+    BE --> FE : 403 Forbidden
+    FE --> User : Error — edit permission denied
+else access granted
 
-FE -> FE : Compute new hash of edited plaintext\n(SHA-256 / SHA-512 / MD5)
-FE -> FE : Generate new random FEK\n(32 bytes via os.urandom)
-FE -> FE : Generate new random nonce / IV
-FE -> FE : Encrypt edited file using new FEK + nonce\n→ new ciphertext + auth_tag
+    BE -> DB : Fetch caller encrypted private key\n(private_key_enc, salt, nonce)
+    DB --> BE : encrypted private key blob
 
-FE -> BE : GET /files/{id}/shares
-BE -> DB : Fetch all recipient IDs\nfor this file
-DB --> BE : [recipient_id, ...]
-BE --> FE : recipient list
+    BE -> BE : Derive AES key from password\n(PBKDF2 + stored salt)
+    BE -> BE : Decrypt private key blob\n→ RSA private key object
 
-FE -> BE : GET /users/pubkeys\n(owner + all recipients)
-BE -> DB : Fetch all public key PEMs
-DB --> BE : [{ user_id, public_key_pem }, ...]
-BE --> FE : public keys
+    BE -> BE : Unwrap caller's FEK copy\nusing RSA private key (access proof)
 
-FE -> FE : Wrap new FEK for owner\n(RSA-OAEP with owner public key)
-FE -> FE : Wrap new FEK for each recipient\n(RSA-OAEP with each recipient public key)
+    BE -> BE : Compute new hash of new plaintext\n(SHA-256 / SHA-512 / MD5)\nbefore encryption
 
-FE -> BE : PUT /files/{id}\n(\n  new_ciphertext,\n  new_nonce,\n  new_auth_tag,\n  new_file_hash,\n  wrapped_FEK_owner,\n  [wrapped_FEK_recipient1, ...]\n)
+    BE -> BE : Generate new random FEK\n(32 bytes via os.urandom)\nOld FEK is discarded
 
-BE -> BE : Validate JWT (must be owner)
-BE -> DB : Update file record\n(ciphertext, nonce, auth_tag,\nfile_hash, wrapped_FEK_owner)
-BE -> DB : Update shares table\n(new wrapped_FEK per recipient)
-DB --> BE : OK
+    BE -> BE : Generate new random nonce / IV
+    BE -> BE : Encrypt new file using new FEK + nonce\n→ new ciphertext\n(AES-256-GCM or ChaCha20-Poly1305)
 
-BE --> FE : 200 Success
-FE --> User : File updated successfully
+    BE -> DB : Fetch owner public key PEM
+    DB --> BE : owner public_key_pem
+
+    BE -> BE : Wrap new FEK for owner\n(RSA-OAEP with owner public key)
+
+    BE -> DB : Fetch all share recipients for this file
+    DB --> BE : [{ recipient_id, public_key_pem }, ...]
+
+    BE -> BE : Wrap new FEK for each recipient\n(RSA-OAEP with each recipient public key)
+
+    BE -> DB : UPDATE file record\n(ciphertext, nonce, file_hash,\nenc_algo, hash_algo, wrapped_fek_owner)
+    BE -> DB : UPDATE each share record\n(new wrapped_fek per recipient)
+    DB --> BE : OK
+
+    BE --> FE : 200 OK\n{ file_id, filename, file_hash, enc_algo, hash_algo }
+    FE --> User : File updated successfully
+
+end
 @enduml

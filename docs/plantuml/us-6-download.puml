@@ -4,29 +4,44 @@ participant FE
 participant BE
 participant DB
 
-User -> FE : Request file download
+User -> FE : Request file download\n(file shared with them)
 
-FE -> BE : GET /files/{id}
+FE -> BE : POST /files/{id}/download\n{ password }\n[JWT in header]
+
 BE -> BE : Validate JWT
-BE -> DB : Fetch ciphertext + wrapped_FEK\n+ nonce + auth_tag + stored_hash\n+ enc_algo + hash_algo
-DB --> BE : encrypted file data
-BE --> FE : encrypted file data
 
-note over FE : All decryption happens\nclient-side only
+BE -> DB : Check share entry\n(recipient_id == jwt.user_id\nAND not expired)
+DB --> BE : share record + wrapped_FEK
 
-FE -> FE : Prompt user for password
-FE -> FE : Derive key from password (PBKDF2)
-FE -> FE : Decrypt private key blob → RSA key object
-FE -> FE : Unwrap FEK using RSA private key (OAEP)
-FE -> FE : Decrypt ciphertext using FEK\n(AES-256-GCM or ChaCha20-Poly1305)
-FE -> FE : Verify auth tag (tamper check on ciphertext)
+alt no share or expired
+    BE --> FE : 403 Forbidden
+    FE --> User : Error — access denied or link expired
+else access granted
 
-FE -> FE : Recompute hash of decrypted plaintext\n(using stored hash_algo)
-FE -> FE : Compare recomputed hash vs stored hash
+    BE -> DB : Fetch file record\n(\n  ciphertext, nonce,\n  stored_hash, enc_algo, hash_algo\n)
+    DB --> BE : encrypted file data
 
-alt hashes match
-    FE --> User : Plaintext file + INTEGRITY PASS
-else hashes differ
-    FE --> User : Warning — file integrity FAILED\n(possible tampering detected)
+    BE -> DB : Fetch recipient encrypted private key\n(private_key_enc, salt, nonce)
+    DB --> BE : encrypted private key blob
+
+    BE -> BE : Derive AES key from password\n(PBKDF2 + stored salt)
+    BE -> BE : Decrypt private key blob\n→ RSA private key object
+
+    BE -> BE : Unwrap FEK using recipient\nRSA private key (OAEP)\n→ raw 32-byte FEK
+
+    BE -> BE : Decrypt ciphertext using FEK\n(AES-256-GCM or ChaCha20-Poly1305)
+    BE -> BE : Verify auth tag (tamper check on ciphertext)
+
+    BE -> BE : Recompute hash of decrypted plaintext\n(using stored hash_algo)
+    BE -> BE : Compare recomputed hash vs stored hash
+
+    alt hashes match
+        BE --> FE : 200 OK — plaintext file bytes\n+ headers: X-Integrity-Check: PASS
+        FE --> User : Downloaded file + INTEGRITY PASS
+    else hashes differ
+        BE --> FE : 422 Unprocessable\n{ integrity: false }
+        FE --> User : Warning — file integrity FAILED\n(possible tampering detected)
+    end
+
 end
 @enduml

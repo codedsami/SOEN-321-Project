@@ -4,28 +4,34 @@ participant FE
 participant BE
 participant DB
 
-User -> FE : Share file with recipient email
+User -> FE : Share file — enter recipient email\n+ own password\n+ optional: can_edit, expires_in_days
 
-FE -> BE : GET /users/recipient/pubkey
-BE -> DB : Fetch recipient public key
-DB --> BE : recipient_public_key_pem
-BE --> FE : recipient_public_key_pem
+FE -> BE : POST /files/{id}/share\n{ recipient_email, password, can_edit, expires_in_days }\n[JWT in header]
 
-FE -> BE : GET /files/{id}/wrapped-fek
-BE -> BE : Validate JWT (must be owner)
-BE -> DB : Fetch owner's wrapped_FEK
-DB --> BE : wrapped_FEK (owner copy)
-BE --> FE : wrapped_FEK
+BE -> BE : Validate JWT (must be file owner)
 
-FE -> FE : Derive key from password (PBKDF2)
-FE -> FE : Decrypt private key blob → RSA key
-FE -> FE : Unwrap FEK using own RSA private key
-FE -> FE : Re-wrap FEK using recipient public key
+BE -> DB : Fetch file record + owner wrapped_FEK
+DB --> BE : file record
 
-FE -> BE : POST /share\n(file_id, recipient_id, new_wrapped_FEK)
-BE -> BE : Validate JWT
-BE -> DB : Store share entry\n(file_id, recipient_id, wrapped_FEK)
+BE -> DB : Fetch recipient user by email
+DB --> BE : recipient record (id, public_key_pem)
+
+BE -> DB : Fetch owner encrypted private key\n(private_key_enc, salt, nonce)
+DB --> BE : encrypted private key blob
+
+BE -> BE : Derive AES key from password\n(PBKDF2 + stored salt)
+BE -> BE : Decrypt owner private key blob\n→ RSA private key object
+
+BE -> BE : Unwrap FEK using owner\nRSA private key (OAEP)\n→ raw 32-byte FEK
+
+BE -> BE : Re-wrap FEK using recipient\nRSA public key (OAEP)\n→ recipient_wrapped_FEK
+
+BE -> DB : INSERT share record\n(\n  file_id,\n  owner_id,\n  recipient_id,\n  wrapped_fek = recipient_wrapped_FEK,\n  can_edit,\n  expires_at\n)
 DB --> BE : OK
-BE --> FE : 200 Success
+
+BE -> BE : Generate ID-based access link\n(file ID — no public token)
+BE -> BE : [MOCK EMAIL] Print notification\nto server console
+
+BE --> FE : 200 OK\n{ message, access_link, expires_at }
 FE --> User : File shared successfully
 @enduml
