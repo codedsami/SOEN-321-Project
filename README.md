@@ -20,6 +20,8 @@ and key derivation (PBKDF2). The server stores only ciphertext and never persist
 | Omar Elmasaoudi | [@Omare04](https://github.com/Omare04) | 40255123 | |
 | Yassine Ibhir | [@Yibhir0](https://github.com/Yibhir0) | 40251116 | Encryption & hashing |
 | Tanim Chowdhury | [@Nimzstb](https://github.com/Nimzstb) | 40245607 | Security Analysis and Discussion |
+| Ziad-Tarik Taufeek | [@Ziad-Tari](https://github.com/Ziad-Tari) | 40205732 | Worked on the report and validation |
+
 
 ---
 
