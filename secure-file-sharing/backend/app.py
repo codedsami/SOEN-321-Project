@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, send_from_directory, redirect
 from flask_jwt_extended import JWTManager
 from models import db
 from routes.auth import auth_bp
@@ -17,9 +17,20 @@ JWTManager(app)
 app.register_blueprint(auth_bp)
 app.register_blueprint(files_bp)
 
+# ── Serve frontend ────────────────────────────────────────────
+FRONTEND_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', 'frontend')
+)
+
 @app.route('/')
-def index():
-    return {'status': 'backend is running'}
+def root():
+    return redirect('/ui/index.html')
+
+@app.route('/ui', defaults={'filename': 'index.html'})
+@app.route('/ui/<path:filename>')
+def serve_frontend(filename):
+    return send_from_directory(FRONTEND_DIR, filename)
+# ─────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
     with app.app_context():

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureShare — Edit File</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div id="navbar"></div>
+
+<div class="container py-2">
+    <div class="row justify-content-center">
+        <div class="col-md-7">
+
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h5 class="mb-0">Edit File</h5>
+                </div>
+                <div class="card-body">
+                    <div id="alert-box"></div>
+
+                    <div class="mb-3 p-3 bg-light border rounded small">
+                        <div><span class="text-muted">File ID:</span>
+                            <strong id="fileIdDisplay" class="ms-1"></strong></div>
+                        <div><span class="text-muted">Replacing:</span>
+                            <strong id="filenameDisplay" class="ms-1"></strong></div>
+                    </div>
+
+                    <div class="alert alert-info small">
+                        Uploading a new file completely replaces the existing one.
+                        A <strong>brand-new FEK</strong> is generated and automatically re-wrapped
+                        for the owner and every existing recipient — no manual re-sharing needed.
+                    </div>
+
+                    <form id="editForm">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">New File</label>
+                            <input type="file" class="form-control" id="fileInput" required>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-semibold">Encryption Algorithm</label>
+                                <select class="form-select" id="encAlgo">
+                                    <option value="aes-256-gcm">AES-256-GCM</option>
+                                    <option value="chacha20-poly1305">ChaCha20-Poly1305</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-semibold">Hash Algorithm</label>
+                                <select class="form-select" id="hashAlgo">
+                                    <option value="sha256">SHA-256</option>
+                                    <option value="sha512">SHA-512</option>
+                                    <option value="md5">MD5 &#9888; (insecure — demo only)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-warning w-100 fw-bold" id="editBtn">
+                            Re-encrypt &amp; Replace File
+                        </button>
+                    </form>
+
+                    <!-- RESULT -->
+                    <div id="result" style="display:none" class="mt-4">
+                        <hr>
+                        <div class="alert alert-success">
+                            <strong>File updated.</strong>
+                            New FEK generated and re-wrapped for owner and all recipients.
+                        </div>
+                        <table class="table table-sm table-bordered">
+                            <tbody>
+                                <tr>
+                                    <th style="width:180px">File ID</th>
+                                    <td id="r-file-id"></td>
+                                </tr>
+                                <tr>
+                                    <th>Encryption</th>
+                                    <td><span class="badge bg-secondary" id="r-enc"></span></td>
+                                </tr>
+                                <tr>
+                                    <th>New File Hash</th>
+                                    <td><code class="small" id="r-hash"></code></td>
+                                </tr>
+                                <tr>
+                                    <th>Recipients Re-keyed</th>
+                                    <td id="r-recipients"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <a href="/ui/dashboard.html" class="btn btn-outline-primary btn-sm">
+                            Back to Dashboard
+                        </a>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- HOW IT WORKS -->
+            <div class="card shadow-sm mt-3">
+                <div class="card-body small text-muted">
+                    <strong>Re-encryption chain:</strong>
+                    <ol class="mb-0 mt-1">
+                        <li>JWT verified — must be owner or a recipient with <code>can_edit = true</code></li>
+                        <li>New hash computed from new plaintext (before encryption)</li>
+                        <li>Brand-new random FEK generated — old FEK discarded</li>
+                        <li>New plaintext encrypted with new FEK + fresh nonce</li>
+                        <li>New FEK wrapped separately for owner + every existing recipient (RSA-OAEP)</li>
+                        <li>File record + all share records updated atomically</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="text-center mt-2">
+                <a href="/ui/dashboard.html" class="text-muted small">Back to Dashboard</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/ui/app.js"></script>
+<script>
+requireAuth();
+injectNav('');
+
+const fileId   = qs('id');
+const filename = qs('filename') || 'file';
+
+document.getElementById('fileIdDisplay').textContent   = fileId;
+document.getElementById('filenameDisplay').textContent = filename;
+
+document.getElementById('editForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('editBtn');
+    btn.disabled = true;
+    btn.textContent = 'Uploading…';
+    document.getElementById('result').style.display = 'none';
+    document.getElementById('alert-box').innerHTML = '';
+
+    const formData = new FormData();
+    formData.append('file',      document.getElementById('fileInput').files[0]);
+    formData.append('enc_algo',  document.getElementById('encAlgo').value);
+    formData.append('hash_algo', document.getElementById('hashAlgo').value);
+
+    const res  = await apiFetch(`/files/${fileId}/edit`, { method: 'PUT', body: formData });
+    const data = await res.json();
+
+    if (res.ok) {
+        document.getElementById('r-file-id').textContent    = data.file_id;
+        document.getElementById('r-enc').textContent        = data.enc_algo;
+        document.getElementById('r-hash').textContent       = data.new_hash;
+        document.getElementById('r-recipients').textContent = data.recipients_rekeyed;
+        document.getElementById('result').style.display     = '';
+    } else {
+        showAlert('alert-box', getError(data, `Edit failed (${res.status})`));
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Re-encrypt & Replace File';
+});
+</script>
+</body>
+</html>

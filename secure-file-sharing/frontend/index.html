@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureShare — Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+
+            <div class="text-center mb-4">
+                <h2 class="fw-bold">SecureShare</h2>
+                <p class="text-muted">Encrypted file sharing — server never sees plaintext</p>
+            </div>
+
+            <div class="card shadow-sm">
+                <div class="card-header p-0 border-bottom-0">
+                    <ul class="nav nav-tabs card-header-tabs" id="authTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="loginTab"
+                                    data-bs-toggle="tab" data-bs-target="#loginPane"
+                                    type="button">Login</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="registerTab"
+                                    data-bs-toggle="tab" data-bs-target="#registerPane"
+                                    type="button">Register</button>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="card-body">
+                    <div id="alert-box"></div>
+
+                    <div class="tab-content">
+
+                        <!-- LOGIN FORM -->
+                        <div class="tab-pane fade show active" id="loginPane" role="tabpanel">
+                            <form id="loginForm">
+                                <div class="mb-3">
+                                    <label class="form-label">Email</label>
+                                    <input type="email" class="form-control" id="loginEmail" required autofocus>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="loginPassword" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary w-100" id="loginBtn">
+                                    Login
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- REGISTER FORM -->
+                        <div class="tab-pane fade" id="registerPane" role="tabpanel">
+                            <form id="registerForm">
+                                <div class="mb-3">
+                                    <label class="form-label">Email</label>
+                                    <input type="email" class="form-control" id="regEmail" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="regPassword" required>
+                                    <div class="form-text">
+                                        This password protects your RSA private key via PBKDF2 + AES-256-GCM.
+                                        Do not lose it — there is no recovery.
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-success w-100" id="registerBtn">
+                                    Create Account
+                                </button>
+                            </form>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <p class="text-center text-muted small mt-3">
+                Registration generates an RSA-2048 key pair.
+                Your private key is encrypted with bcrypt-derived AES-256-GCM before storage.
+            </p>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/ui/app.js"></script>
+<script>
+    // Already logged in — skip to dashboard
+    if (getToken()) window.location.replace('/ui/dashboard.html');
+
+    // LOGIN
+    document.getElementById('loginForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        const btn = document.getElementById('loginBtn');
+        btn.disabled = true;
+        btn.textContent = 'Logging in…';
+
+        const res = await fetch('/login', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email:    document.getElementById('loginEmail').value,
+                password: document.getElementById('loginPassword').value,
+            }),
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            setToken(data.access_token);
+            setUser(data.user_id, document.getElementById('loginEmail').value);
+            window.location.href = '/ui/dashboard.html';
+        } else {
+            showAlert('alert-box', data.error || 'Login failed');
+            btn.disabled = false;
+            btn.textContent = 'Login';
+        }
+    });
+
+    // REGISTER
+    document.getElementById('registerForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        const btn = document.getElementById('registerBtn');
+        btn.disabled = true;
+        btn.textContent = 'Creating account…';
+
+        const res = await fetch('/register', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email:    document.getElementById('regEmail').value,
+                password: document.getElementById('regPassword').value,
+            }),
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            showAlert('alert-box',
+                'Account created — RSA-2048 key pair generated. You can now log in.', 'success');
+            // Pre-fill login email and switch to login tab
+            document.getElementById('loginEmail').value = document.getElementById('regEmail').value;
+            new bootstrap.Tab(document.getElementById('loginTab')).show();
+        } else {
+            showAlert('alert-box', data.error || 'Registration failed');
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+    });
+</script>
+</body>
+</html>

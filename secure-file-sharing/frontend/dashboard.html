@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureShare — Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div id="navbar"></div>
+
+<div class="container py-2 pb-5">
+    <div id="alert-box"></div>
+
+    <!-- MY FILES -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">My Files</h5>
+            <a href="/ui/upload.html" class="btn btn-sm btn-primary">+ Upload</a>
+        </div>
+        <div class="card-body p-0">
+
+            <div id="myFilesSpinner" class="text-center py-4">
+                <div class="spinner-border text-primary" role="status"></div>
+                <div class="text-muted small mt-2">Loading…</div>
+            </div>
+
+            <div id="myFilesEmpty" class="text-center text-muted py-4" style="display:none">
+                No files yet.
+                <a href="/ui/upload.html">Upload your first file.</a>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="myFilesTable" style="display:none">
+                    <thead class="table-light">
+                        <tr>
+                            <th>ID</th>
+                            <th>Filename</th>
+                            <th>Size</th>
+                            <th>Encryption</th>
+                            <th>Hash Algo</th>
+                            <th>Hash (preview)</th>
+                            <th>Uploaded</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="myFilesTbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- SHARED WITH ME -->
+    <div class="card shadow-sm">
+        <div class="card-header">
+            <h5 class="mb-0">Shared With Me</h5>
+        </div>
+        <div class="card-body p-0">
+
+            <div id="sharedSpinner" class="text-center py-4">
+                <div class="spinner-border text-secondary" role="status"></div>
+                <div class="text-muted small mt-2">Loading…</div>
+            </div>
+
+            <div id="sharedEmpty" class="text-center text-muted py-4" style="display:none">
+                No files have been shared with you yet.
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="sharedTable" style="display:none">
+                    <thead class="table-light">
+                        <tr>
+                            <th>ID</th>
+                            <th>Filename</th>
+                            <th>Owner</th>
+                            <th>Encryption</th>
+                            <th>Hash Algo</th>
+                            <th>Shared</th>
+                            <th>Expires</th>
+                            <th>Can Edit</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sharedTbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/ui/app.js"></script>
+<script>
+requireAuth();
+injectNav('dashboard');
+
+// ---- Load my files ----
+async function loadMyFiles() {
+    const res = await apiFetch('/files');
+    if (!res.ok) {
+        document.getElementById('myFilesSpinner').style.display = 'none';
+        showAlert('alert-box', 'Failed to load files');
+        return;
+    }
+    const files = await res.json();
+    document.getElementById('myFilesSpinner').style.display = 'none';
+
+    if (!files.length) {
+        document.getElementById('myFilesEmpty').style.display = 'block';
+        return;
+    }
+
+    const tbody = document.getElementById('myFilesTbody');
+    tbody.innerHTML = files.map(f => `
+        <tr>
+            <td class="text-muted small">${f.id}</td>
+            <td class="fw-semibold">${escHtml(f.filename)}</td>
+            <td class="small">${fmtSize(f.file_size)}</td>
+            <td>
+                <span class="badge bg-secondary">${f.enc_algo}</span>
+            </td>
+            <td>
+                <span class="badge ${f.hash_algo === 'md5' ? 'bg-warning text-dark' : 'bg-info text-dark'}">
+                    ${f.hash_algo}${f.hash_algo === 'md5' ? ' &#9888;' : ''}
+                </span>
+            </td>
+            <td><code class="small">${f.file_hash.slice(0, 20)}…</code></td>
+            <td class="small text-muted">${fmtDate(f.upload_date)}</td>
+            <td>
+                <div class="btn-group btn-group-sm">
+                    <a href="/ui/download.html?id=${f.id}&filename=${encodeURIComponent(f.filename)}"
+                       class="btn btn-success">Download</a>
+                    <a href="/ui/share.html?id=${f.id}&filename=${encodeURIComponent(f.filename)}"
+                       class="btn btn-primary">Share</a>
+                    <a href="/ui/edit.html?id=${f.id}&filename=${encodeURIComponent(f.filename)}"
+                       class="btn btn-warning">Edit</a>
+                    <button class="btn btn-danger"
+                            onclick="deleteFile(${f.id}, '${escHtml(f.filename)}')">Delete</button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+
+    document.getElementById('myFilesTable').style.display = '';
+}
+
+// ---- Load shared with me ----
+async function loadSharedFiles() {
+    const res = await apiFetch('/files/shared-with-me');
+    if (!res.ok) {
+        document.getElementById('sharedSpinner').style.display = 'none';
+        return;
+    }
+    const files = await res.json();
+    document.getElementById('sharedSpinner').style.display = 'none';
+
+    if (!files.length) {
+        document.getElementById('sharedEmpty').style.display = 'block';
+        return;
+    }
+
+    const tbody = document.getElementById('sharedTbody');
+    tbody.innerHTML = files.map(f => `
+        <tr>
+            <td class="text-muted small">${f.file_id}</td>
+            <td class="fw-semibold">${escHtml(f.filename)}</td>
+            <td class="small">${escHtml(f.owner_email)}</td>
+            <td><span class="badge bg-secondary">${f.enc_algo}</span></td>
+            <td><span class="badge bg-info text-dark">${f.hash_algo}</span></td>
+            <td class="small text-muted">${fmtDate(f.shared_at)}</td>
+            <td class="small">${f.expires_at ? fmtDate(f.expires_at) : '<span class="text-muted">Never</span>'}</td>
+            <td>
+                ${f.can_edit
+                    ? '<span class="badge bg-success">Yes</span>'
+                    : '<span class="badge bg-secondary">No</span>'}
+            </td>
+            <td>
+                <div class="btn-group btn-group-sm">
+                    <a href="/ui/download.html?id=${f.file_id}&filename=${encodeURIComponent(f.filename)}"
+                       class="btn btn-success">Download</a>
+                    ${f.can_edit
+                        ? `<a href="/ui/edit.html?id=${f.file_id}&filename=${encodeURIComponent(f.filename)}"
+                               class="btn btn-warning">Edit</a>`
+                        : ''}
+                </div>
+            </td>
+        </tr>
+    `).join('');
+
+    document.getElementById('sharedTable').style.display = '';
+}
+
+// ---- Delete ----
+async function deleteFile(id, name) {
+    if (!confirm(`Delete "${name}"?\nThis removes the file and all shares. This cannot be undone.`)) return;
+
+    const res = await apiFetch(`/files/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+        showAlert('alert-box', `"${name}" deleted successfully.`, 'success');
+        loadMyFiles();
+    } else {
+        const d = await res.json().catch(() => ({}));
+        showAlert('alert-box', d.ERROR || 'Delete failed');
+    }
+}
+
+// ---- XSS helper ----
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+loadMyFiles();
+loadSharedFiles();
+</script>
+</body>
+</html>

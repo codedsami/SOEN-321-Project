@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureShare — Download</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .integrity-pass {
+            background-color: #d1e7dd;
+            border: 2px solid #0f5132;
+            border-radius: 8px;
+        }
+        .integrity-fail {
+            background-color: #f8d7da;
+            border: 2px solid #842029;
+            border-radius: 8px;
+        }
+        .integrity-icon {
+            font-size: 3rem;
+            line-height: 1;
+        }
+    </style>
+</head>
+<body class="bg-light">
+
+<div id="navbar"></div>
+
+<div class="container py-2">
+    <div class="row justify-content-center">
+        <div class="col-md-7">
+
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h5 class="mb-0">Download &amp; Decrypt File</h5>
+                </div>
+                <div class="card-body">
+                    <div id="alert-box"></div>
+
+                    <div class="mb-3 p-3 bg-light border rounded small">
+                        <div><span class="text-muted">File ID:</span>
+                            <strong id="fileIdDisplay" class="ms-1"></strong></div>
+                        <div><span class="text-muted">Filename:</span>
+                            <strong id="filenameDisplay" class="ms-1"></strong></div>
+                    </div>
+
+                    <form id="downloadForm">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Password</label>
+                            <input type="password" class="form-control" id="password"
+                                   placeholder="Your account password" required autofocus>
+                            <div class="form-text">
+                                Used to re-derive your AES key (PBKDF2) &rarr; decrypt your RSA private key &rarr;
+                                unwrap the FEK &rarr; decrypt the file.
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-success w-100" id="downloadBtn">
+                            Decrypt &amp; Download
+                        </button>
+                    </form>
+
+                    <!-- INTEGRITY RESULT BANNER -->
+                    <div id="integrityResult" style="display:none" class="mt-4">
+                        <div id="integrityBanner" class="p-4 text-center">
+                            <div class="integrity-icon" id="integrityIcon"></div>
+                            <h3 class="fw-bold mt-2" id="integrityTitle"></h3>
+                            <p class="mb-0" id="integrityMsg"></p>
+                        </div>
+
+                        <table class="table table-sm table-bordered mt-3">
+                            <tbody>
+                                <tr>
+                                    <th style="width:160px">Hash Algorithm</th>
+                                    <td><code id="r-hash-algo"></code></td>
+                                </tr>
+                                <tr>
+                                    <th>Stored Hash</th>
+                                    <td><code class="small" id="r-stored-hash"></code></td>
+                                </tr>
+                                <tr>
+                                    <th>Recomputed Hash</th>
+                                    <td><code class="small" id="r-recomputed-hash"></code></td>
+                                </tr>
+                                <tr>
+                                    <th>Match</th>
+                                    <td id="r-match"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- HOW IT WORKS -->
+            <div class="card shadow-sm mt-3">
+                <div class="card-body small text-muted">
+                    <strong>Decryption chain:</strong>
+                    <ol class="mb-0 mt-1">
+                        <li>PBKDF2(password + stored salt) &rarr; AES key</li>
+                        <li>AES-256-GCM decrypt private key blob &rarr; RSA private key</li>
+                        <li>RSA-OAEP unwrap wrapped FEK &rarr; raw 32-byte FEK</li>
+                        <li>AES-GCM / ChaCha20 decrypt ciphertext &rarr; plaintext (auth tag verified)</li>
+                        <li>Recompute hash of plaintext &rarr; compare with stored hash</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="text-center mt-2">
+                <a href="/ui/dashboard.html" class="text-muted small">Back to Dashboard</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/ui/app.js"></script>
+<script>
+requireAuth();
+injectNav('');
+
+const fileId   = qs('id');
+const filename = qs('filename') || 'file';
+
+document.getElementById('fileIdDisplay').textContent   = fileId;
+document.getElementById('filenameDisplay').textContent = filename;
+
+document.getElementById('downloadForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('downloadBtn');
+    btn.disabled = true;
+    btn.textContent = 'Decrypting…';
+    document.getElementById('integrityResult').style.display = 'none';
+    document.getElementById('alert-box').innerHTML = '';
+
+    const password = document.getElementById('password').value;
+
+    const res = await apiFetch(`/files/${fileId}/download`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password }),
+    });
+
+    if (res.ok) {
+        // Read integrity headers BEFORE consuming body as blob
+        const integrityCheck  = res.headers.get('X-Integrity-Check');
+        const storedHash      = res.headers.get('X-File-Hash');
+        const hashAlgo        = res.headers.get('X-Hash-Algorithm');
+
+        // Trigger browser file download
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        // Show PASS banner
+        renderIntegrity(true, hashAlgo, storedHash, storedHash);
+
+    } else if (res.status === 422) {
+        const data = await res.json();
+        if (data.integrity === false && data.stored_hash) {
+            // Integrity FAIL — hashes don't match
+            renderIntegrity(false, data.hash_algo, data.stored_hash, data.recomputed_hash);
+        } else {
+            // Auth tag mismatch (ciphertext tampered)
+            showAlert('alert-box', getError(data, 'Decryption failed — ciphertext may be corrupted'));
+        }
+    } else if (res.status === 401) {
+        showAlert('alert-box', 'Wrong password — could not decrypt private key.');
+    } else {
+        const data = await res.json().catch(() => ({}));
+        showAlert('alert-box', getError(data, `Request failed (${res.status})`));
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Decrypt & Download';
+});
+
+function renderIntegrity(pass, hashAlgo, storedHash, recomputedHash) {
+    const banner = document.getElementById('integrityBanner');
+    banner.className = 'p-4 text-center ' + (pass ? 'integrity-pass' : 'integrity-fail');
+
+    document.getElementById('integrityIcon').textContent  = pass ? '✓' : '✗';
+    document.getElementById('integrityTitle').textContent = pass ? 'INTEGRITY PASS' : 'INTEGRITY FAIL';
+    document.getElementById('integrityMsg').textContent   = pass
+        ? 'Recomputed hash matches stored hash — file is authentic and unmodified.'
+        : 'Hash mismatch detected — file may have been tampered with after upload.';
+
+    document.getElementById('r-hash-algo').textContent       = hashAlgo       || '—';
+    document.getElementById('r-stored-hash').textContent     = storedHash     || '—';
+    document.getElementById('r-recomputed-hash').textContent = recomputedHash || '—';
+    document.getElementById('r-match').innerHTML = pass
+        ? '<span class="text-success fw-bold">Match</span>'
+        : '<span class="text-danger fw-bold">Mismatch</span>';
+
+    document.getElementById('integrityResult').style.display = '';
+}
+</script>
+</body>
+</html>

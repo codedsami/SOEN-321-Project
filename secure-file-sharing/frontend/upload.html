@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureShare — Upload</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div id="navbar"></div>
+
+<div class="container py-2">
+    <div class="row justify-content-center">
+        <div class="col-md-7">
+
+            <!-- UPLOAD FORM -->
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h5 class="mb-0">Upload &amp; Encrypt File</h5>
+                </div>
+                <div class="card-body">
+                    <div id="alert-box"></div>
+
+                    <form id="uploadForm">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">File</label>
+                            <input type="file" class="form-control" id="fileInput" required>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-semibold">Encryption Algorithm</label>
+                                <select class="form-select" id="encAlgo">
+                                    <option value="aes-256-gcm">AES-256-GCM</option>
+                                    <option value="chacha20-poly1305">ChaCha20-Poly1305</option>
+                                </select>
+                                <div class="form-text">Both are AEAD — confidentiality + integrity in one pass.</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-semibold">Hash Algorithm</label>
+                                <select class="form-select" id="hashAlgo">
+                                    <option value="sha256">SHA-256</option>
+                                    <option value="sha512">SHA-512</option>
+                                    <option value="md5">MD5 &#9888; (insecure — demo only)</option>
+                                </select>
+                                <div class="form-text">Hash is computed before encryption and stored for integrity checks.</div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100" id="uploadBtn">
+                            Encrypt &amp; Upload
+                        </button>
+                    </form>
+
+                    <!-- RESULT -->
+                    <div id="result" style="display:none" class="mt-4">
+                        <hr>
+                        <h6 class="fw-bold text-success mb-3">Upload successful — file is now encrypted at rest</h6>
+                        <table class="table table-sm table-bordered">
+                            <tbody>
+                                <tr>
+                                    <th style="width:160px">File ID</th>
+                                    <td id="r-id"></td>
+                                </tr>
+                                <tr>
+                                    <th>Filename</th>
+                                    <td id="r-filename"></td>
+                                </tr>
+                                <tr>
+                                    <th>Encryption</th>
+                                    <td><span class="badge bg-secondary" id="r-enc"></span></td>
+                                </tr>
+                                <tr>
+                                    <th>Hash Algorithm</th>
+                                    <td><span class="badge bg-info text-dark" id="r-hash-algo"></span></td>
+                                </tr>
+                                <tr>
+                                    <th>File Hash</th>
+                                    <td><code class="small" id="r-hash"></code></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div class="d-flex gap-2">
+                            <a href="/ui/dashboard.html" class="btn btn-outline-secondary btn-sm">
+                                Back to Dashboard
+                            </a>
+                            <button class="btn btn-primary btn-sm" onclick="resetForm()">
+                                Upload Another
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HOW IT WORKS -->
+            <div class="card shadow-sm mt-3">
+                <div class="card-body small text-muted">
+                    <strong>Encryption chain:</strong>
+                    <ol class="mb-0 mt-1">
+                        <li>File hash computed from plaintext (<em>before</em> encryption)</li>
+                        <li>Random 256-bit FEK generated via <code>os.urandom</code></li>
+                        <li>File encrypted with selected algorithm + fresh nonce</li>
+                        <li>FEK wrapped with your RSA-2048 public key (OAEP padding)</li>
+                        <li>Only ciphertext + wrapped FEK + hash stored — no plaintext at rest</li>
+                    </ol>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/ui/app.js"></script>
+<script>
+requireAuth();
+injectNav('upload');
+
+document.getElementById('uploadForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('uploadBtn');
+    btn.disabled = true;
+    btn.textContent = 'Uploading…';
+    document.getElementById('result').style.display = 'none';
+    document.getElementById('alert-box').innerHTML = '';
+
+    const formData = new FormData();
+    formData.append('file',      document.getElementById('fileInput').files[0]);
+    formData.append('enc_algo',  document.getElementById('encAlgo').value);
+    formData.append('hash_algo', document.getElementById('hashAlgo').value);
+
+    const res  = await apiFetch('/files/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (res.ok) {
+        document.getElementById('r-id').textContent        = data.id;
+        document.getElementById('r-filename').textContent  = data.filename;
+        document.getElementById('r-enc').textContent       = data.enc_algo;
+        document.getElementById('r-hash-algo').textContent = data.hash_algo;
+        document.getElementById('r-hash').textContent      = data.file_hash;
+        document.getElementById('result').style.display    = '';
+        if (data.warning) showAlert('alert-box', data.warning, 'warning');
+    } else {
+        showAlert('alert-box', getError(data, 'Upload failed'));
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Encrypt & Upload';
+});
+
+function resetForm() {
+    document.getElementById('uploadForm').reset();
+    document.getElementById('result').style.display = 'none';
+}
+</script>
+</body>
+</html>
