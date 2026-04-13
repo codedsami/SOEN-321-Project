@@ -14,7 +14,7 @@ and key derivation (PBKDF2). The server stores only ciphertext and never persist
 
 | Member | GitHub | Student ID | Contributions |
 |---|---|---|---|
-| Miskat Mahmud | [@codedsami](https://github.com/codedsami) | 40250110 | Login & register routes, Introduction, System Design |
+| Miskat Mahmud | [@codedsami](https://github.com/codedsami) | 40250110 | Login, logout & register routes, Introduction, System Design |
 | Adib Akkari | [@adssib](https://github.com/adssib) | 40216815 | System Design, Requirements, DB schema, Sequence Diagrams |
 | Shaheer Mohammad | [@Zniniz](https://github.com/Zniniz) | 40252466 | File sharing, deletion & edit routes, Security Analysis |
 | Omar Elmasaoudi | [@Omare04](https://github.com/Omare04) | 40255123 | Upload, Download, List endpoints + registered files blueprint in app.py |
