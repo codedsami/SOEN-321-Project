@@ -16,7 +16,7 @@ and key derivation (PBKDF2). The server stores only ciphertext and never persist
 |---|---|---|---|
 | Miskat Mahmud | [@codedsami](https://github.com/codedsami) | 40250110 | Login & register routes, Introduction, System Design |
 | Adib Akkari | [@adssib](https://github.com/adssib) | 40216815 | System Design, Requirements, DB schema, Sequence Diagrams |
-| Shaheer Mohammad | [@Zniniz](https://github.com/Zniniz) | 40252466 | File sharing & edit routes, Security Analysis |
+| Shaheer Mohammad | [@Zniniz](https://github.com/Zniniz) | 40252466 | File sharing, deletion & edit routes, Security Analysis |
 | Omar Elmasaoudi | [@Omare04](https://github.com/Omare04) | 40255123 | |
 | Yassine Ibhir | [@Yibhir0](https://github.com/Yibhir0) | 40251116 | Encryption & hashing |
 | Tanim Chowdhury | [@Nimzstb](https://github.com/Nimzstb) | 40245607 | Security Analysis and Discussion |
